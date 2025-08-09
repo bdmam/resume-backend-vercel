@@ -1,7 +1,10 @@
-// api/create_checkout.js
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 export default async function handler(req, res){
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
   try {
     if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
     const body = req.body || {};
@@ -15,30 +18,28 @@ export default async function handler(req, res){
     if (!selected.length) return res.status(400).json({ error: 'No valid tiers' });
 
     const line_items = selected.map(pid => ({ price: pid, quantity: 1 }));
-
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items,
       success_url: `${process.env.SITE_URL || ''}/index.html#success={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.SITE_URL || ''}/index.html#cancelled=1`,
       allow_promotion_codes: true,
-      client_reference_id: (body && body.utm && body.utm.campaign) || undefined,
-      metadata: (()=>{
+      client_reference_id: (body?.utm?.campaign) || undefined,
+      metadata: (()=> {
         const m = {};
-        if (body && body.utm){
-          if (body.utm.source) m.utm_source = body.utm.source;
-          if (body.utm.medium) m.utm_medium = body.utm.medium;
-          if (body.utm.campaign) m.utm_campaign = body.utm.campaign;
-          if (body.utm.term) m.utm_term = body.utm.term;
-          if (body.utm.content) m.utm_content = body.utm.content;
-        }
-        if (body && body.page) m.page = body.page;
-        if (body && body.referrer) m.referrer = body.referrer;
+        const u = body?.utm || {};
+        if (u.source) m.utm_source = u.source;
+        if (u.medium) m.utm_medium = u.medium;
+        if (u.campaign) m.utm_campaign = u.campaign;
+        if (u.term) m.utm_term = u.term;
+        if (u.content) m.utm_content = u.content;
+        if (body.page) m.page = body.page;
+        if (body.referrer) m.referrer = body.referrer;
         return m;
       })()
     });
 
-    try{
+    try {
       if (process.env.SHEETS_WEBHOOK_URL){
         await fetch(process.env.SHEETS_WEBHOOK_URL, {
           method: 'POST',
@@ -46,17 +47,17 @@ export default async function handler(req, res){
           body: JSON.stringify({
             session_id: session.id,
             tiers: (tiers || []),
-            utm: body && body.utm ? body.utm : {},
-            page: body && body.page,
-            referrer: body && body.referrer,
+            utm: body?.utm || {},
+            page: body?.page,
+            referrer: body?.referrer,
             created: Date.now()
           })
         });
       }
-    }catch(e){ /* ignore */ }
+    } catch {}
 
-    res.status(200).json({ url: session.url });
+    return res.status(200).json({ url: session.url });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
   }
 }
